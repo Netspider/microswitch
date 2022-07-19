@@ -1,0 +1,17 @@
+# ntp sync interval in minutes
+time_sync_interval = 24*60
+# config download interval in minutes
+fetch_config_interval = 24*60
+# micropython does not support timezones, add this many hours to UTC,
+# so your schedule can be in local time
+time_diff_utc = 2.0
+gpio = 5
+
+switches = dict(
+    sw1=dict(protocol=4, code="00F0FFFF01",
+             on={(8, 30), (17, 0)},
+             off={(10, 0), (23, 0)},
+             ),
+    sw2=dict(protocol=4, code="00F0FFFF10", on={}, off={}),
+    sw3=dict(protocol=4, code="00F0FFF100", on={}, off={}),
+)
