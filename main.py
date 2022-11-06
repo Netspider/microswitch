@@ -1,5 +1,7 @@
 import gc
 
+import micropython
+
 import config_local
 import time
 
@@ -117,6 +119,68 @@ def sec_to_utc(t: int) -> int:
     return utc_t
 
 
+def sun_sec_utc(t: str, add_hour: int = 0, add_minute: int = 0) -> int:
+    if t not in ("sunrise", "sunset"):
+        raise ValueError("parameter t must be 'sunset' or 'sunrise'!")
+    if "longitude" not in dir(config) or "latitude" not in dir(config):
+        raise ValueError("config options 'longitude' and 'latitude' must be set!")
+
+    # micropython-suntime (GitHub) has to be put into the /lib directory
+    import suntime
+    import time
+
+    day = micropython.const(2)
+    hour = micropython.const(3)
+    minute = micropython.const(4)
+
+    now = time.gmtime()
+    s = suntime.Sun(config.latitude, config.longitude)
+    if t == "sunrise":
+        sun_time = s.get_sunrise_time(date=now)
+    else:
+        sun_time = s.get_sunset_time(date=now)
+    if sun_time[day] != now[day]:
+        # FIXME sunset is tomorrow but at 00:00 the sunset time for the next day is calculated
+        return 23*60*60 + 59*60
+    # add_* can be negative for subtracting time
+    # examples:
+    # 2, 0 for 120 minutes after sunset
+    # -1, -30 for 90 minutes before sunset
+    # 0, -45 for 45 minutes before sunset
+    adj_sun_time = sun_time[hour]*60*60 + sun_time[minute]*60 + add_hour*60*60 + add_minute*60
+
+    # capped at 23:59
+    if adj_sun_time >= 24*60*60:
+        # FIXME sunset is tomorrow but at 00:00 the sunset time for the next day is calculated
+        return 23*60*60 + 59*60
+    return adj_sun_time
+
+
+def replace_switch_cron(callback_id, current_time=None, callback_memory=None):
+    # type: (str, int, str) -> None
+    _ = current_time
+    _ = callback_memory
+    switch_name, action = callback_id.replace("refresh_", "").rsplit("_", 1)
+    times = set()
+    my_callback_id = "{}_{}".format(switch_name, action)
+    mcron.remove(my_callback_id)
+    mcron.remove(callback_id)
+    refresh_later = False
+    for t in config.switches[switch_name][action]:
+        if isinstance(t[0], str):
+            refresh_later = True
+            if t[0] == "sunset":
+                times.add(sun_sec_utc("sunset", t[1], t[2]))
+            elif t[0] == "sunrise":
+                times.add(sun_sec_utc("sunrise", t[1], t[2]))
+        else:
+            times.add(sec_to_utc(int(t[0] * 60 * 60 + t[1] * 60)))
+    if refresh_later:
+        mcron.insert(mcron.PERIOD_DAY, {0}, "refresh_{}".format(my_callback_id), replace_switch_cron)
+    if times:
+        mcron.insert(mcron.PERIOD_DAY, times, my_callback_id, switch_callback)
+
+
 def main():
     connect_network()
     sync_time()
@@ -137,11 +201,7 @@ def main():
             protocol=config.switches[switch_name]["protocol"]
         )
         for action in ("on", "off"):
-            times = set()
-            for t in config.switches[switch_name][action]:
-                times.add(sec_to_utc(int(t[0] * 60 * 60 + t[1] * 60)))
-            if times:
-                mcron.insert(mcron.PERIOD_DAY, times, "{}_{}".format(switch_name, action), switch_callback)
+            replace_switch_cron("{}_{}".format(switch_name, action))
 
     while True:
         if do_fetch_config:

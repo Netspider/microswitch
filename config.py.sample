@@ -6,10 +6,15 @@ fetch_config_interval = 24*60
 # so your schedule can be in local time
 time_diff_utc = 2.0
 gpio = 5
+# your position is used if you use sunrise/sunset
+# North: +, South: -
+latitude = 50.19
+# East: +, West: -
+longitude = 3.48
 
 switches = dict(
     sw1=dict(protocol=4, code="00F0FFFF01",
-             on={(8, 30), (17, 0)},
+             on={(8, 30), ("sunset", 1, 0)},
              off={(10, 0), (23, 0)},
              ),
     sw2=dict(protocol=4, code="00F0FFFF10", on={}, off={}),
