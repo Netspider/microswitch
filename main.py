@@ -1,9 +1,11 @@
 import gc
 
+# noinspection PyUnresolvedReferences
 import micropython
 
 import config_local
 import time
+import sys
 
 import switch
 
@@ -25,6 +27,7 @@ do_fetch_config = False
 
 
 def connect_network():
+    # noinspection PyUnresolvedReferences
     import network
     # noinspection PyUnresolvedReferences
     sta_if = network.WLAN(network.STA_IF)
@@ -87,6 +90,7 @@ def fetch_config():
     global last_config_fetch
     last_config_fetch = time.time()
     if hash_before != hash_after:
+        # noinspection PyUnresolvedReferences
         import machine
         machine.soft_reset()
 
@@ -182,33 +186,47 @@ def replace_switch_cron(callback_id, current_time=None, callback_memory=None):
 
 
 def main():
-    connect_network()
-    sync_time()
-    mcron.init_timer()
-    mcron.remove_all()
+    try:
+        connect_network()
+        sync_time()
+        mcron.init_timer()
+        mcron.remove_all()
 
-    if "config" not in globals():
-        fetch_config()  # and soft_reset if config is old or not loaded
+        if "config" not in globals():
+            fetch_config()  # and soft_reset if config is old or not loaded
 
-    mcron.insert(config.fetch_config_interval * 60, {0}, "fetch_config", fetch_config_cb, from_now=True)
-    mcron.insert(config.time_sync_interval * 60, {0}, "time_sync", sync_time_cb, from_now=True)
+        mcron.insert(config.fetch_config_interval * 60, {0}, "fetch_config", fetch_config_cb, from_now=True)
+        mcron.insert(config.time_sync_interval * 60, {0}, "time_sync", sync_time_cb, from_now=True)
 
-    global switchpin, do_time_sync, do_fetch_config
-    for switch_name in config.switches:
-        switchpin[switch_name] = switch.Switch(
-            gpio=config.gpio,
-            code=config.switches[switch_name]["code"],
-            protocol=config.switches[switch_name]["protocol"]
-        )
-        for action in ("on", "off"):
-            replace_switch_cron("{}_{}".format(switch_name, action))
+        global switchpin, do_time_sync, do_fetch_config
+        for switch_name in config.switches:
+            switchpin[switch_name] = switch.Switch(
+                gpio=config.gpio,
+                code=config.switches[switch_name]["code"],
+                protocol=config.switches[switch_name]["protocol"]
+            )
+            for action in ("on", "off"):
+                replace_switch_cron("{}_{}".format(switch_name, action))
 
-    while True:
-        if do_fetch_config:
-            fetch_config()
-        if do_time_sync:
-            sync_time()
-        time.sleep(5)
+        while True:
+            if do_fetch_config:
+                fetch_config()
+            if do_time_sync:
+                sync_time()
+            time.sleep(5)
+    except Exception as e:
+        f = open("/exception.log", "a")
+        f.write("----------\n")
+        # noinspection PyUnresolvedReferences
+        sys.print_exception(e, f)  # documentation says "file=f" but that does not work
+        # noinspection PyUnresolvedReferences
+        sys.print_exception(e)  # to stdout
+        f.write("\ntime: {}\n".format(time.gmtime()))
+        f.write("----------\n")
+        f.close()
+        # noinspection PyUnresolvedReferences
+        import machine
+        machine.Pin(2, machine.Pin.OUT).on()  # enable onboard LED
 
 
 if __name__ == '__main__':
