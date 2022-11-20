@@ -12,7 +12,7 @@ import switch
 try:
     # noinspection PyUnresolvedReferences
     import config
-except ImportError:
+except (ImportError, SyntaxError):
     pass
 
 # import upip
@@ -53,13 +53,18 @@ def sync_time():
     import ntptime
     try:
         ntptime.settime()
-    except OSError:
+    except (OSError, OverflowError):
+        time.sleep(5)
         connect_network()
         try:
             ntptime.settime()
-        except OSError as e:
-            # dann eben jetzt nicht
-            print("Could not sync to ntp time: {}".format(repr(e)))
+        except (OSError, OverflowError) as e:
+            # maybe later
+            pass
+            # print("Could not sync to ntp time: {}".format(repr(e)))
+            # f = open("/exception.log", "a")
+            # f.write("Could not sync to ntp time: {}\ntime: {}\n".format(repr(e), time.gmtime()))
+            # f.close()
 
 
 def fetch_config_cb(callback_id, current_time, callback_memory):
@@ -78,7 +83,15 @@ def fetch_config():
         import requests
 
     gc.collect()
-    r = requests.get(config_local.config_url)
+    try:
+        r = requests.get(config_local.config_url)
+    except OSError:
+        connect_network()
+        try:
+            r = requests.get(config_local.config_url)
+        except OSError:
+            return  # spaeter vielleicht?
+
     try:
         hash_before = get_hash(open("/config.py", "r").read())
     except OSError:
@@ -93,6 +106,8 @@ def fetch_config():
         # noinspection PyUnresolvedReferences
         import machine
         machine.soft_reset()
+    global do_fetch_config
+    do_fetch_config = False
 
 
 def get_hash(data: str) -> str:
@@ -210,6 +225,7 @@ def main():
 
         while True:
             if do_fetch_config:
+                connect_network()
                 fetch_config()
             if do_time_sync:
                 sync_time()
