@@ -6,6 +6,7 @@ import micropython
 import config_local
 import time
 import sys
+import machine
 
 import switch
 
@@ -22,6 +23,8 @@ import mcron
 
 last_timesync = last_config_fetch = time.time()
 switchpin = dict()
+buttonstates = dict()
+do_switch_by_button = False
 do_time_sync = False
 do_fetch_config = False
 
@@ -104,7 +107,6 @@ def fetch_config():
     last_config_fetch = time.time()
     if hash_before != hash_after:
         # noinspection PyUnresolvedReferences
-        import machine
         machine.soft_reset()
     global do_fetch_config
     do_fetch_config = False
@@ -122,10 +124,12 @@ def switch_callback(callback_id, current_time, callback_memory):
     _ = callback_memory
     print(callback_id)
     switch_name, action = callback_id.rsplit("_", 1)
-    global switchpin
+    global switchpin, buttonstates
     if action == "on":
+        buttonstates[switch_name] = True
         switchpin[switch_name].on()
     else:
+        buttonstates[switch_name] = False
         switchpin[switch_name].off()
 
 
@@ -200,6 +204,28 @@ def replace_switch_cron(callback_id, current_time=None, callback_memory=None):
         mcron.insert(mcron.PERIOD_DAY, times, my_callback_id, switch_callback)
 
 
+def switch_by_button_callback(pin):
+    global do_switch_by_button
+    do_switch_by_button = pin
+
+
+def switch_by_button(pin):
+    if not pin:
+        return False
+    global switchpin, buttonstates
+    for sw in config.switches:
+        if "button" in config.switches[sw]:
+            if "Pin({})".format(config.switches[sw]["button"]) == str(pin):
+                if sw not in buttonstates or buttonstates[sw] is False:
+                    switchpin[sw].on()
+                    buttonstates[sw] = True
+                else:
+                    switchpin[sw].off()
+                    buttonstates[sw] = False
+                return True
+    return False
+
+
 def main():
     try:
         connect_network()
@@ -213,13 +239,17 @@ def main():
         mcron.insert(config.fetch_config_interval * 60, {0}, "fetch_config", fetch_config_cb, from_now=True)
         mcron.insert(config.time_sync_interval * 60, {0}, "time_sync", sync_time_cb, from_now=True)
 
-        global switchpin, do_time_sync, do_fetch_config
+        global switchpin, do_time_sync, do_fetch_config, do_switch_by_button
         for switch_name in config.switches:
             switchpin[switch_name] = switch.Switch(
                 gpio=config.gpio,
                 code=config.switches[switch_name]["code"],
                 protocol=config.switches[switch_name]["protocol"]
             )
+            if "button" in config.switches[switch_name]:
+                tmp_pin = machine.Pin(config.switches[switch_name]["button"], machine.Pin.IN, machine.Pin.PULL_DOWN)
+                tmp_pin.irq(handler=switch_by_button_callback, trigger=machine.Pin.IRQ_RISING)
+
             for action in ("on", "off"):
                 replace_switch_cron("{}_{}".format(switch_name, action))
 
@@ -229,7 +259,13 @@ def main():
                 fetch_config()
             if do_time_sync:
                 sync_time()
-            time.sleep(5)
+            if do_switch_by_button:
+                if switch_by_button(do_switch_by_button):
+                    do_switch_by_button = False
+                else:
+                    # got an error, maybe ISR ran twice?
+                    do_switch_by_button = False
+            time.sleep(0.5)
     except Exception as e:
         f = open("/exception.log", "a")
         f.write("----------\n")
@@ -241,7 +277,6 @@ def main():
         f.write("----------\n")
         f.close()
         # noinspection PyUnresolvedReferences
-        import machine
         machine.Pin(2, machine.Pin.OUT).on()  # enable onboard LED
 
 

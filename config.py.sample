@@ -16,7 +16,8 @@ switches = dict(
     sw1=dict(protocol=4, code="00F0FFFF01",
              on={(8, 30), ("sunset", 1, 0)},
              off={(10, 0), (23, 0)},
+             button=18,
              ),
-    sw2=dict(protocol=4, code="00F0FFFF10", on={}, off={}),
-    sw3=dict(protocol=4, code="00F0FFF100", on={}, off={}),
+    sw2=dict(protocol=4, code="00F0FFFF10", on={}, off={}, button=None),
+    sw3=dict(protocol=4, code="00F0FFF100", on={}, off={}, button=None),
 )
